@@ -42,26 +42,41 @@ networks:
     external: true
   traefik-network:
     external: true
+  devops-network:
+    external: true
+  monitor-network:
+    external: true
 
 volumes:
   keycloak-postgres:
   keycloak-postgres-backup:
   keycloak-database-backups:
   traefik-certificates:
+  grafana-data:
 
 services:
   postgres:
     image: ${KEYCLOAK_POSTGRES_IMAGE_TAG}
+    container_name: keycloak_postgres
     volumes:
       - keycloak-postgres:/var/lib/postgresql/data
     environment:
       POSTGRESQL_DATABASE: ${KEYCLOAK_DB_NAME}
       POSTGRES_USER: ${KEYCLOAK_DB_USER}
-      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}  
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
     networks:
       - keycloak-network
     healthcheck:
-      test: [ "CMD", "pg_isready", "-q", "-d", "${KEYCLOAK_DB_NAME}", "-U", "${KEYCLOAK_DB_USER}" ]
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-q",
+          "-d",
+          "${KEYCLOAK_DB_NAME}",
+          "-U",
+          "${KEYCLOAK_DB_USER}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -70,6 +85,7 @@ services:
 
   keycloak:
     image: ${KEYCLOAK_IMAGE_TAG}
+    container_name: keycloak
     environment:
       KEYCLOAK_DATABASE_VENDOR: ${KEYCLOAK_DB_TYPE}
       KEYCLOAK_DATABASE_HOST: postgres
@@ -81,12 +97,12 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USERNAME}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_CREATE_ADMIN_USER: true
-      KEYCLOAK_ENABLE_HEALTH_ENDPOINTS: 'true'
-      KEYCLOAK_ENABLE_STATISTICS: 'true'
+      KEYCLOAK_ENABLE_HEALTH_ENDPOINTS: "true"
+      KEYCLOAK_ENABLE_STATISTICS: "true"
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
       KC_PROXY: edge
-      KC_PROXY_ADDRESS_FORWARDING: 'true'
-      KC_HTTP_ENABLED: 'true'
+      KC_PROXY_ADDRESS_FORWARDING: "true"
+      KC_HTTP_ENABLED: "true"
     networks:
       - keycloak-network
       - traefik-network
@@ -115,6 +131,7 @@ services:
 
   traefik:
     image: ${TRAEFIK_IMAGE_TAG}
+    container_name: traefik
     command:
       - "--log.level=${TRAEFIK_LOG_LEVEL}"
       - "--accesslog=true"
@@ -144,7 +161,7 @@ services:
       - "80:80"
       - "443:443"
     healthcheck:
-      test: ["CMD", "wget", "http://localhost:8082/ping","--spider"]
+      test: ["CMD", "wget", "http://localhost:8082/ping", "--spider"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -168,6 +185,7 @@ services:
 
   backups:
     image: ${KEYCLOAK_POSTGRES_IMAGE_TAG}
+    container_name: keycloak_postgres_backups
     command: >-
       sh -c 'sleep $KEYCLOAK_BACKUP_INIT_SLEEP &&
       while true; do
@@ -192,3 +210,209 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  nexus:
+    image: ${NEXUS_IMAGE_TAG}
+    container_name: nexus
+    ports:
+      - ${NEXUS_PORT}:8081
+    volumes:
+      - "/opt/nexus/:/var/lib/nexus"
+
+  jenkins:
+    image: ${JENKINS_IMAGE_TAG}
+    container_name: jenkins
+    networks:
+      - devops-network
+      - traefik-network
+    ports:
+      - ${JENKINS_PORT}:8080
+      - 50000:50000
+    volumes:
+      - "$PWD/jenkins:/var/jenkins_home"
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/8080' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jenkins.rule=Host(`${JENKINS_HOSTNAME}`)"
+      - "traefik.http.routers.jenkins.service=jenkins"
+      - "traefik.http.routers.jenkins.entrypoints=websecure"
+      - "traefik.http.services.jenkins.loadbalancer.server.port=8080"
+      - "traefik.http.routers.jenkins.tls=true"
+      - "traefik.http.routers.jenkins.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jenkins.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.jenkins.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+    restart: unless-stopped
+
+  sonarqube:
+    image: ${SONAQUBE_IMAGE_TAG}
+    container_name: sonarqube
+    restart: always
+    ports:
+      - ${SONAQUBE_PORT}:9000
+    networks:
+      - devops-network
+      - traefik-network
+    depends_on:
+      - sonardb
+    links:
+      - sonardb
+    environment:
+      - SONARQUBE_JDBC_URL=jdbc:postgresql://sonardb:5432/${SONAQUBE_DB_NAME}
+      - SONARQUBE_JDBC_USERNAME=${SONAQUBE_DB_USER}
+      - SONARQUBE_JDBC_PASSWORD=${SONAQUBE_DB_PASSWORD}
+    volumes:
+      - "/opt/sonar/:/var/lib/sonar"
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarqube.rule=Host(`${SONAQUBE_HOSTNAME}`)"
+      - "traefik.http.routers.sonarqube.service=sonarqube"
+      - "traefik.http.routers.sonarqube.entrypoints=websecure"
+      - "traefik.http.services.sonarqube.loadbalancer.server.port=9000"
+      - "traefik.http.routers.sonarqube.tls=true"
+      - "traefik.http.routers.sonarqube.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sonarqube.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.sonarqube.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+
+  sonardb:
+    image: ${POSTGRES_IMAGE_TAG}
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRESQL_DB=${SONAQUBE_DB_NAME}
+      - POSTGRES_USER=${SONAQUBE_DB_USER}
+      - POSTGRES_PASSWORD=${SONAQUBE_DB_PASSWORD}
+    networks:
+      - devops-network
+    volumes:
+      - "/opt/postgres:/var/lib/postgresql"
+
+  # Monitoring
+  prometheus:
+    container_name: prometheus
+    image: ${PROMETHEUS_IMAGE_TAG}
+    ports:
+      - ${PROMETHEUS_PORT}:9090
+    networks:
+      - monitor-network
+      - traefik-network
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - "./config/prometheus.yml:/etc/prometheus/prometheus.yml"
+    privileged: true
+    depends_on:
+      - cadvisor
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`${PROMETHEUS_HOSTNAME}`)"
+      - "traefik.http.routers.prometheus.service=prometheus"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.prometheus.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+
+  cadvisor:
+    container_name: cadvisor
+    image: ${CADVISOR_IMAGE_TAG}
+    ports:
+      - ${CADVISOR_PORT}:8080
+    networks:
+      - monitor-network
+      - traefik-network
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/8080' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cadvisor.rule=Host(`${CADVISOR_HOSTNAME}`)"
+      - "traefik.http.routers.cadvisor.service=cadvisor"
+      - "traefik.http.routers.cadvisor.entrypoints=websecure"
+      - "traefik.http.services.cadvisor.loadbalancer.server.port=8080"
+      - "traefik.http.routers.cadvisor.tls=true"
+      - "traefik.http.routers.cadvisor.tls.certresolver=letsencrypt"
+      - "traefik.http.services.cadvisor.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.cadvisor.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    networks:
+      - monitor-network
+
+  grafana:
+    container_name: grafana
+    image: ${GRAFANA_IMAGE_TAG}
+    ports:
+      - ${GRAFANA_PORT}:3000
+    networks:
+      - monitor-network
+      - traefik-network
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - DS_PROMETHEUS=prometheus
+    volumes:
+      - "grafana-data:/var/lib/grafana"
+      - "./config/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml"
+      - "./config/dashboard.json:/var/lib/grafana/dashboards/dashboard.json"
+      - "./config/default.yaml:/etc/grafana/provisioning/dashboards/default.yaml"
+    privileged: true
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_HOSTNAME}`)"
+      - "traefik.http.routers.grafana.service=grafana"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.services.grafana.loadbalancer.server.port=8080"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.grafana.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+    depends_on:
+      - prometheus
+    
