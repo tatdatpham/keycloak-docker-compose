@@ -1,58 +1,4 @@
-# Keycloak with Let's Encrypt Using Docker Compose
-
-# Change variables in the `.env` to meet your requirements.
-# Note that the `.env` file should be in the same directory as `docker-compose.yml`.
-
-# Create networks for your services before deploying the configuration using the commands:
-# `docker network create traefik-network`
-# `docker network create keycloak-network`
-
-# Deploy Keycloak using Docker Compose:
-# `docker compose -f docker-compose.yml -p keycloak up -d`
-
-# Backups
-# The `backups` container in the configuration is responsible for the following:
-# 1. **Database Backup**: Creates compressed backups of the PostgreSQL database using pg_dump.
-# Customizable backup path, filename pattern, and schedule through variables like `POSTGRES_BACKUPS_PATH`, `POSTGRES_BACKUP_NAME`, and `BACKUP_INTERVAL`.
-# 2. **Backup Pruning**: Periodically removes backups exceeding a specified age to manage storage.
-# Customizable pruning schedule and age threshold with `POSTGRES_BACKUP_PRUNE_DAYS` and `DATA_BACKUP_PRUNE_DAYS`.
-# By utilizing this container, consistent and automated backups of the essential components of your instance are ensured.
-# Moreover, efficient management of backup storage and tailored backup routines can be achieved through easy and flexible configuration using environment variables.
-
-# # keycloak-restore-database.sh Description
-# This script facilitates the restoration of a database backup:
-# 1. **Identify Containers**: It first identifies the service and backups containers by name, finding the appropriate container IDs.
-# 2. **List Backups**: Displays all available database backups located at the specified backup path.
-# 3. **Select Backup**: Prompts the user to copy and paste the desired backup name from the list to restore the database.
-# 4. **Stop Service**: Temporarily stops the service to ensure data consistency during restoration.
-# 5. **Restore Database**: Executes a sequence of commands to drop the current database, create a new one, and restore it from the selected compressed backup file.
-# 6. **Start Service**: Restarts the service after the restoration is completed.
-# To make the `keycloak-restore-database.shh` script executable, run the following command:
-# `chmod +x keycloak-restore-database.sh`
-# Usage of this script ensures a controlled and guided process to restore the database from an existing backup.
-
-# Author
-# I’m Vladimir Mikhalev, the Docker Captain, but my friends can call me Valdemar.
-# https://www.docker.com/captains/vladimir-mikhalev/
-
-# Modifier: @tatdatpham
-
-networks:
-  keycloak-network:
-    external: true
-  traefik-network:
-    external: true
-  devops-network:
-    external: true
-  monitor-network:
-    external: true
-
-volumes:
-  keycloak-postgres:
-  keycloak-postgres-backup:
-  keycloak-database-backups:
-  traefik-certificates:
-  grafana-data:
+name: devsecops
 
 services:
   postgres:
@@ -228,10 +174,15 @@ services:
     ports:
       - ${JENKINS_PORT}:8080
       - 50000:50000
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs
     volumes:
-      - "$PWD/jenkins:/var/jenkins_home"
+      - "$PWD/jenkins_home:/var/jenkins_home"
+      - jenkins-docker-certs:/certs/client
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker
+    privileged: true
+    user: root
     healthcheck:
       test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/8080' || exit 1
       interval: 10s
@@ -319,12 +270,6 @@ services:
     privileged: true
     depends_on:
       - cadvisor
-    healthcheck:
-      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.prometheus.rule=Host(`${PROMETHEUS_HOSTNAME}`)"
@@ -351,12 +296,6 @@ services:
       - /var/run:/var/run:rw
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
-    healthcheck:
-      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/8080' || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.cadvisor.rule=Host(`${CADVISOR_HOSTNAME}`)"
@@ -395,18 +334,12 @@ services:
       - "./config/dashboard.json:/var/lib/grafana/dashboards/dashboard.json"
       - "./config/default.yaml:/etc/grafana/provisioning/dashboards/default.yaml"
     privileged: true
-    healthcheck:
-      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_HOSTNAME}`)"
       - "traefik.http.routers.grafana.service=grafana"
       - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.services.grafana.loadbalancer.server.port=8080"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
       - "traefik.http.routers.grafana.tls=true"
       - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
       - "traefik.http.services.grafana.loadbalancer.passhostheader=true"
@@ -415,4 +348,26 @@ services:
       - "traefik.docker.network=traefik-network"
     depends_on:
       - prometheus
+
+networks:
+  keycloak-network:
+    name: keycloak-network
+    external: true
+  traefik-network:
+    name: traefik-network
+    external: true
+  devops-network:
+    name: devops-network
+    external: true
+  monitor-network:
+    name: monitor-network
+    external: true
+
+volumes:
+  keycloak-postgres:
+  keycloak-postgres-backup:
+  keycloak-database-backups:
+  traefik-certificates:
+  grafana-data:
+  jenkins-docker-certs:
     
