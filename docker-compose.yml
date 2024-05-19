@@ -203,6 +203,17 @@ services:
       - "traefik.docker.network=traefik-network"
     restart: unless-stopped
 
+  jenkins-agent:
+    image: jenkins/inbound-agent
+    container_name: jenkins-agent
+    restart: always
+    environment:
+      - JENKINS_URL=https://${JENKINS_HOSTNAME}
+      - JENKINS_AGENT_NAME=jnlp-agent
+      - JENKINS_SECRET=${JENKINS_SECRET}
+    depends_on:
+      - jenkins
+
   sonarqube:
     image: ${SONAQUBE_IMAGE_TAG}
     container_name: sonarqube
@@ -253,6 +264,35 @@ services:
       - devops-network
     volumes:
       - "/opt/postgres:/var/lib/postgresql"
+
+  gerrit:
+    image: ${GERRIT_IMAGE_TAG}
+    container_name: gerrit
+    volumes:
+      - gerrit-git-volume:/var/gerrit/git
+      - gerrit-index-volume:/var/gerrit/index
+      - gerrit-cache-volume:/var/gerrit/cache
+      - ./config/gerrit/docker-entrypoint.sh:/docker-entrypoint.sh # Mount the updated entrypoint script
+    ports:
+      - "29418:29418"
+    networks:
+      - devops-network
+      - traefik-network
+    entrypoint: ["/bin/sh", "-c", "/docker-entrypoint.sh"] # Ensure entrypoint is set correctly
+    environment:
+      - CANONICAL_WEB_URL=https://${GERRIT_HOSTNAME}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gerrit.rule=Host(`${GERRIT_HOSTNAME}`)"
+      - "traefik.http.routers.gerrit.service=gerrit"
+      - "traefik.http.routers.gerrit.entrypoints=websecure"
+      - "traefik.http.services.gerrit.loadbalancer.server.port=8080"
+      - "traefik.http.routers.gerrit.tls=true"
+      - "traefik.http.routers.gerrit.tls.certresolver=letsencrypt"
+      - "traefik.http.services.gerrit.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.gerrit.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
 
   # Monitoring
   prometheus:
@@ -370,4 +410,6 @@ volumes:
   traefik-certificates:
   grafana-data:
   jenkins-docker-certs:
-    
+  gerrit-git-volume:
+  gerrit-index-volume:
+  gerrit-cache-volume:
