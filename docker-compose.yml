@@ -232,7 +232,11 @@ services:
       - SONARQUBE_JDBC_USERNAME=${SONAQUBE_DB_USER}
       - SONARQUBE_JDBC_PASSWORD=${SONAQUBE_DB_PASSWORD}
     volumes:
-      - "/opt/sonar/:/var/lib/sonar"
+      - sonarqube_conf:/opt/sonarqube/conf
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_blogs:/opt/sonarqube/logs
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_temp:/opt/sonarqube/temp
     healthcheck:
       test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
       interval: 10s
@@ -263,7 +267,8 @@ services:
     networks:
       - devops-network
     volumes:
-      - "/opt/postgres:/var/lib/postgresql"
+      - sonar_db:/var/lib/postgresql
+      - sonar_db_data:/var/lib/postgresql/data
 
   gerrit:
     image: ${GERRIT_IMAGE_TAG}
@@ -413,3 +418,10 @@ volumes:
   gerrit-git-volume:
   gerrit-index-volume:
   gerrit-cache-volume:
+  sonarqube_conf:
+  sonarqube_extensions:
+  sonarqube_blogs:
+  sonarqube_data:
+  sonarqube_temp:
+  sonar_db:
+  sonar_db_data:
