@@ -48,9 +48,20 @@ To make the `keycloak-restore-database.shh` script executable, run the following
 
 Usage of this script ensures a controlled and guided process to restore the database from an existing backup.
 
+
+# Build docker image
+I shipped the `dockerfile` for Jenkins agent build for **Maven** and **NodeJS**
+Run command below to build the docker iamge for multiple platform. 
+```
+# Create and use a new builder instance
+docker buildx create --use
+
+# Inspect the builder to ensure it supports multiple platforms
+docker buildx inspect --bootstrap
+
+# Build and push the Docker image for multiple platforms
+docker buildx build --platform linux/amd64,linux/arm64 -t your-dockerhub-username/jenkins-agent-maven:latest --push .
+```
+
 # Author - Rewrite code
 Tat Dat Pham
-
-# Special thank TO
-[heyValdemar](https://github.com/heyValdemar)
-
