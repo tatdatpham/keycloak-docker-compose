@@ -60,7 +60,7 @@ docker buildx create --use
 docker buildx inspect --bootstrap
 
 # Build and push the Docker image for multiple platforms
-docker buildx build --platform linux/amd64,linux/arm64 -t your-dockerhub-username/jenkins-agent-maven:latest --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t your-dockerhub-username/jenkins-agent-python3:latest --push .
 ```
 
 # Author - Rewrite code
