@@ -163,7 +163,20 @@ services:
     ports:
       - ${NEXUS_PORT}:8081
     volumes:
-      - "/opt/nexus/:/var/lib/nexus"
+      - nexus_registry:/var/lib/nexus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nexus.rule=Host(`${NEXUS_HOSTNAME}`)"
+      - "traefik.http.routers.nexus.service=nexus"
+      - "traefik.http.routers.nexus.entrypoints=websecure"
+      - "traefik.http.services.nexus.loadbalancer.server.port=${NEXUS_PORT}"
+      - "traefik.http.routers.nexus.tls=true"
+      - "traefik.http.routers.nexus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nexus.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.nexus.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+
 
   jenkins:
     image: ${JENKINS_IMAGE_TAG}
@@ -412,6 +425,7 @@ volumes:
   keycloak-postgres-backup:
   keycloak-database-backups:
   traefik-certificates:
+  nexus_registry:
   grafana-data:
   jenkins-docker-certs:
   gerrit-git-volume:
