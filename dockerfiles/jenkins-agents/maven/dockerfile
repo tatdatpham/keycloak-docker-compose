@@ -6,8 +6,10 @@ USER root
 # ca-certificates because curl will need it later on for the maven installation
 RUN apt-get update && apt-get install -y curl
 
-# Now time to install maven
-ARG MAVEN_VERSION=3.9.6
+# Set environment variables for Maven
+ENV MAVEN_VERSION 3.8.6
+ENV MAVEN_HOME /usr/share/maven
+ENV MAVEN_CONFIG "/root/.m2"
 
 # Set SHELL flags for RUN commands to allow -e and pipefail
 # Rationale: https://github.com/hadolint/hadolint/wiki/DL4006
@@ -18,23 +20,22 @@ RUN curl -sS -L -O --output-dir /tmp/ --create-dirs  https://archive.apache.org/
     && printf "%s" "$(sha512sum /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz)" | sha512sum -c - \
     && curl -sS -L -O --output-dir /tmp/ --create-dirs  https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz.sha512 \
     && printf "%s /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz" "$(cat /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz.sha512)" | sha512sum --check --status - \
-    && tar xzf "/tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -C /opt/ \
-    && rm "/tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
-    && ln -s /opt/apache-maven-${MAVEN_VERSION} /opt/maven \
-    && ln -s /opt/maven/bin/mvn /usr/bin/mvn \
+    && tar xzf "/tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -C  /usr/share \
+    && mv /usr/share/apache-maven-${MAVEN_VERSION} ${MAVEN_HOME} \
+    && ln -s ${MAVEN_HOME}/bin/mvn /usr/bin/mvn \
+    && rm -f "/tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
     && mkdir -p /etc/profile.d \
     && echo "export JAVA_HOME=$JAVA_HOME \n \
-             export M2_HOME=/opt/maven \n \
-             export PATH=${M2_HOME}/bin:${PATH}" > /etc/profile.d/maven.sh
+             export MAVEN_HOME=/usr/share/maven \n \
+             export PATH=${MAVEN_HOME}/bin:${PATH}" > /etc/profile.d/maven.sh
 
-ENV M2_HOME="/opt/maven"
-ENV PATH="${M2_HOME}/bin/:${PATH}"
+ENV PATH="${MAVEN_HOME}/bin/:${PATH}"
 
 # Ensure the environment variables are set correctly
-RUN echo "PATH=${PATH}" >> /etc/environment
+RUN echo "PATH=${PATH}" >> /etc/environment && mkdir -p /home/jenkins/.ssh  mkdir -p /home/jenkins/.m2 && touch /home/jenkins/.ssh/known_hosts && echo "[gerrit.secuxperdp.com]: 29419 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEfAVScYWifdEL81golNe+YPZCv8Xxgn7UHW/c2b3yB2" >> /home/jenkins/.ssh/known_hosts
 
-# Set the working directory
-WORKDIR /home/jenkins
+# Copy settings.xml to Maven configuration directory
+COPY settings.xml /home/jenkins/.m2/settings.xml
 
 # Change ownership of the Jenkins home directory
 RUN chown -R jenkins:jenkins /home/jenkins

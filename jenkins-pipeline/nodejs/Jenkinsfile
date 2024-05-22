@@ -1,0 +1,97 @@
+pipeline {
+    agent { label 'nodejs' } // Ensure you have a Node.js agent
+    options {
+        skipStagesAfterUnstable()
+    }
+
+    environment {
+        NVD_API_KEY = credentials('NVD_API_KEY') // If needed for any dependency check in frontend context
+    }
+
+    stages {
+        // stage('Install Dependencies') {
+        //     steps {
+        //         script {
+        //             // Install dependencies
+        //             sh 'npm install'
+        //         }
+        //     }
+        // }
+
+        // stage('Build') {
+        //     steps {
+        //         script {
+        //             // Build the React application
+        //             sh 'npm run build'
+        //         }
+        //     }
+        // }
+
+        // stage('Test') {
+        //     steps {
+        //         script {
+        //             // Run tests
+        //             sh 'npm test'
+        //         }
+        //     }
+        //     post {
+        //         always {
+        //             junit 'test-results.xml' // Adjust based on your test results output
+        //         }
+        //     }
+        // }
+
+        stage('SCA') {
+            // when {
+            //     expression {
+            //         currentBuild.result == 'SUCCESS'
+            //     }
+            // }
+            steps {
+                script {
+                    // Adjust as needed, example with dependency check for frontend
+                    dependencyCheck additionalArguments: '--scan src --format XML --out target --nvdApiKey ${env.NVD_API_KEY} --data /usr/share/dependency-check/data', odcInstallation: 'OWASP-Dependency-Check'
+                }
+            }
+            post {
+                always {
+                    dependencyCheckPublisher pattern: 'target/dependency-check-report.xml'
+                }
+            }
+        }
+
+        stage('SAST') {
+            steps {
+                script {
+                    def scannerHome = tool name: 'SonarQubeScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                    withSonarQubeEnv() {
+                        sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=tatdatpham_simple-reactjs-app_AY-fmOaw0Ha0ksPS5rmc -Dsonar.sources=src -Dsonar.java.binaries=target/classes"
+                    }
+                }
+            } 
+        }
+
+        stage('Publish Coverage Report') {
+            steps {
+                publishHTML(target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: 'coverage', // Adjust to your coverage report directory
+                    reportFiles: 'index.html',
+                    reportName: 'Code Coverage'
+                ])
+            }
+        }
+
+        stage('Deliver') { 
+            steps {
+                script {
+                    // Example deployment step
+                    sh 'echo "Deploying application..."'
+                    // Add your deployment commands here, e.g., uploading to a server or cloud provider
+                }
+            }
+        }
+    }
+}
